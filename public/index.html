@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>YouTube Sync + Chat</title>
+  <link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+  <div class="container">
+    <h1>YouTube Sync + Chat</h1>
+
+    <section class="controls">
+      <div class="row">
+        <label>Room Code</label>
+        <input id="roomCode" placeholder="e.g. abc123" />
+      </div>
+      <div class="row">
+        <label>Username</label>
+        <input id="username" placeholder="your name" />
+      </div>
+      <div class="row">
+        <label class="checkbox"><input type="checkbox" id="asHost" /> Join as Host</label>
+      </div>
+      <div class="row">
+        <button id="joinBtn">Join Room</button>
+      </div>
+      <div class="row">
+        <label>Video URL or ID</label>
+        <input id="videoUrl" placeholder="https://www.youtube.com/watch?v=VIDEOID or VIDEOID" />
+        <button id="loadBtn" disabled>Load</button>
+      </div>
+      <div class="row">
+        <button id="playBtn" disabled>Play</button>
+        <button id="pauseBtn" disabled>Pause</button>
+        <button id="seekBtn" disabled>Seek to</button>
+        <input id="seekTime" type="number" step="0.1" value="0" style="width:100px" />
+      </div>
+      <div class="row small">
+        <span id="status">Disconnected</span>
+        <span id="rtt">RTT: - ms</span>
+      </div>
+    </section>
+
+    <section class="main">
+      <div id="player"></div>
+      <aside class="chat">
+        <div id="messages"></div>
+        <div class="chat-input">
+          <input id="chatInput" placeholder="Type a message..." />
+          <button id="sendBtn">Send</button>
+        </div>
+      </aside>
+    </section>
+
+    <section>
+      <h3>Participants</h3>
+      <ul id="users"></ul>
+    </section>
+  </div>
+
+  <script src="https://cdn.socket.io/4.7.5/socket.io.min.js" integrity="sha384-9nPC3fl9rN0U0r2I1kRXVdM3F55oI5bJ6z4nFQH4W3lX3l2gM4h1uF+0pQq3rYFb" crossorigin="anonymous"></script>
+  <script src="https://www.youtube.com/iframe_api"></script>
+  <script src="/client.js"></script>
+</body>
+</html>
