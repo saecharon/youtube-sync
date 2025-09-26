@@ -26,46 +26,7 @@ const logger = winston.createLogger({
 });
 
 // Security & middleware
-app.use(helmet());
-app.use(cors());
-app.use(express.json());
-
-// Healthcheck
-app.get('/health', (req, res) => res.status(200).send('OK'));
-
-// Static files
-const publicDir = path.join(__dirname, 'public');
-app.use(express.static(publicDir));
-
-const PORT = process.env.PORT || 3000;
-
-// Socket.IO
-const io = new Server(server, {
-  transports: ['websocket'], // prefer true WebSocket
-  cors: {
-    origin: '*',
-    methods: ['GET', 'POST']
-  }
-});
-
-// Optional Redis adapter
-if (process.env.REDIS_URL) {
-  try {
-    const pubClient = new IORedis(process.env.REDIS_URL, { lazyConnect: true });
-    const subClient = pubClient.duplicate();
-    Promise.all([pubClient.connect(), subClient.connect()])
-      .then(() => {
-        io.adapter(createAdapter(pubClient, subClient));
-        logger.info('Socket.IO Redis adapter enabled');
-      })
-      .catch((err) => logger.error('Failed to connect to Redis', { err: String(err) }));
-  } catch (err) {
-    logger.error('Error initializing Redis adapter', { err: String(err) });
-  }
-}
-
-// Security & middleware
-// Configure Helmet with CSP that allows YouTube IFrame API and Socket.IO
+// Helmet CSP allowing YouTube IFrame API and Socket.IO
 app.use(
   helmet({
     contentSecurityPolicy: {
@@ -102,11 +63,59 @@ app.use(
     crossOriginEmbedderPolicy: false, // required for YT embeds
   })
 );
-    // clean up user from any room
+app.use(cors());
+app.use(express.json());
+
+// Healthcheck
+app.get('/health', (req, res) => res.status(200).send('OK'));
+
+// Static files
+const publicDir = path.join(__dirname, 'public');
+app.use(express.static(publicDir));
+
+// Fallback to index.html
+app.get('/', (_req, res) => res.sendFile(path.join(publicDir, 'index.html')));
+
+const PORT = process.env.PORT || 3000;
+
+// Socket.IO
+const io = new Server(server, {
+  // Allow websocket and polling to ensure connectivity on any host
+  transports: ['websocket', 'polling'],
+  cors: {
+    origin: '*',
+    methods: ['GET', 'POST']
+  }
+});
+
+// Optional Redis adapter
+if (process.env.REDIS_URL) {
+  try {
+    const pubClient = new IORedis(process.env.REDIS_URL, { lazyConnect: true });
+    const subClient = pubClient.duplicate();
+    Promise.all([pubClient.connect(), subClient.connect()])
+      .then(() => {
+        io.adapter(createAdapter(pubClient, subClient));
+        logger.info('Socket.IO Redis adapter enabled');
+      })
+      .catch((err) => logger.error('Failed to connect to Redis', { err: String(err) }));
+  } catch (err) {
+    logger.error('Error initializing Redis adapter', { err: String(err) });
+  }
+}
+
+// In-memory room state
+// rooms[roomCode] = { hostId, videoId, playbackState, playbackTime, users: { socketId: { username } } }
+const rooms = {};
+
+io.on('connection', (socket) => {
+  logger.info('Socket connected', { socketId: socket.id });
+
+  socket.on('disconnect', (reason) => {
+    logger.info('Socket disconnected', { socketId: socket.id, reason });
     const roomCode = socket.data?.roomCode;
     if (roomCode && rooms[roomCode]) {
       delete rooms[roomCode].users[socket.id];
-      // If host disconnected, clear host; next joiner can be promoted by UI
       if (rooms[roomCode].hostId === socket.id) {
         rooms[roomCode].hostId = null;
         io.to(roomCode).emit('host_left');
@@ -168,7 +177,6 @@ app.use(
       if (!roomCode || !rooms[roomCode]) return;
       if (rooms[roomCode].hostId !== socket.id) return; // only host can broadcast
 
-      // Update server-side snapshot
       if (type === 'load' && videoId) {
         rooms[roomCode].videoId = videoId;
       }
