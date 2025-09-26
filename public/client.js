@@ -1,6 +1,11 @@
 /* global YT */
 (function () {
-  const socket = io({ transports: ['websocket'], reconnection: true, reconnectionAttempts: 10, reconnectionDelay: 1000 });
+  const socket = io({
+    transports: ['websocket', 'polling'], // allow fallback if websocket is blocked
+    reconnection: true,
+    reconnectionAttempts: 10,
+    reconnectionDelay: 1000
+  });
 
   // UI elements
   const joinBtn = document.getElementById('joinBtn');
@@ -38,7 +43,7 @@
   }
   setInterval(sendPing, 5000);
 
-  socket.on('rtt_pong', ({ ts, serverTime }) => {
+  socket.on('rtt_pong', ({ ts }) => {
     if (typeof ts === 'number' && lastPingTs === ts) {
       const now = Date.now();
       lastRttMs = now - ts;
@@ -56,7 +61,6 @@
   function extractVideoId(input) {
     if (!input) return '';
     try {
-      // If plain ID
       if (/^[a-zA-Z0-9_-]{11}$/.test(input)) return input;
       const url = new URL(input);
       if (url.hostname.includes('youtu.be')) {
@@ -65,9 +69,7 @@
       if (url.searchParams.has('v')) {
         return url.searchParams.get('v');
       }
-    } catch (_) {
-      // ignore
-    }
+    } catch (_) {}
     return input.length === 11 ? input : '';
   }
 
@@ -86,7 +88,6 @@
   }
 
   function onPlayerStateChange(e) {
-    // Only host emits actions from user interactions
     if (!isHost) return;
     const state = e.data; // -1 unstarted, 0 ended, 1 playing, 2 paused, 3 buffering, 5 cued
     const currentTime = safeCurrentTime();
@@ -129,7 +130,7 @@
     socket.emit('host_action', { roomCode, ...payload });
   }
 
-  // Host heartbeat every 5s to correct drift
+  // Host heartbeat every 5s
   setInterval(() => {
     if (!isHost || !roomCode) return;
     const hostTime = Date.now();
@@ -159,8 +160,7 @@
     updateControls();
   });
   socket.on('host_left', () => {
-    if (isHost) return; // if we were host, ignore
-    // Inform user host left; UI can choose to promote
+    if (isHost) return;
     appendMessage({ system: true, message: 'Host left. A new host is needed.' });
   });
   socket.on('room_state', (state) => {
@@ -169,12 +169,16 @@
       loadVideo(state.videoId);
       // Apply approximate sync
       if (typeof state.playbackTime === 'number') {
-        const rttHalf = (lastRttMs || 0) / 2;
-        const serverToClientDelay = rttHalf; // simple model
+        const rttHalfMs = (lastRttMs || 0) / 2;
+        const rttHalfSec = rttHalfMs / 1000; // convert ms -> seconds
+        const serverToClientDelay = rttHalfSec; // one-way latency estimate
         const target = state.playbackState === 'playing'
           ? state.playbackTime + serverToClientDelay
           : state.playbackTime;
-        seekTo(target);
+        const current = safeCurrentTime();
+        const diff = Math.abs(current - target);
+        const finalTarget = diff > 0.15 ? target : current;
+        seekTo(finalTarget);
         if (state.playbackState === 'playing') {
           try { player.playVideo(); } catch (_) {}
         } else {
@@ -193,22 +197,18 @@
     });
   });
 
-  socket.on('host_action', ({ type, videoId, time, state, hostTime }) => {
-    // apply latency compensation
-    const rttHalf = (lastRttMs || 0) / 2;
+  socket.on('host_action', ({ type, videoId, time, state }) => {
+    const rttHalf = (lastRttMs || 0) / 2 / 1000; // seconds
     let targetTime = typeof time === 'number' ? time : safeCurrentTime();
     if (type === 'play' || type === 'seek' || type === 'heartbeat') {
-      targetTime += rttHalf / 1000; // convert ms to seconds
+      targetTime += rttHalf;
     }
-
     if (type === 'load' && videoId) {
       loadVideo(videoId);
     }
-
     if (typeof targetTime === 'number' && !Number.isNaN(targetTime)) {
       seekTo(targetTime);
     }
-
     if (state === 'playing') {
       try { player.playVideo(); } catch (_) {}
     } else if (state === 'paused') {
@@ -225,7 +225,6 @@
     messagesEl.appendChild(div);
     messagesEl.scrollTop = messagesEl.scrollHeight;
   }
-
   socket.on('chat_message', (msg) => appendMessage(msg));
 
   // UI actions
