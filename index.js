@@ -64,15 +64,44 @@ if (process.env.REDIS_URL) {
   }
 }
 
-// In-memory room state (fallback if not using Redis persistence)
-// Structure: rooms[roomCode] = { hostId, videoId, playbackState, playbackTime, users: { socketId: { username } } }
-const rooms = {};
-
-io.on('connection', (socket) => {
-  logger.info('Socket connected', { socketId: socket.id });
-
-  socket.on('disconnect', (reason) => {
-    logger.info('Socket disconnected', { socketId: socket.id, reason });
+// Security & middleware
+// Configure Helmet with CSP that allows YouTube IFrame API and Socket.IO
+app.use(
+  helmet({
+    contentSecurityPolicy: {
+      useDefaults: true,
+      directives: {
+        "default-src": ["'self'"],
+        "script-src": [
+          "'self'",
+          "'unsafe-inline'",
+          "https://www.youtube.com",
+          "https://www.youtube-nocookie.com",
+          "https://s.ytimg.com",
+          "https://i.ytimg.com",
+          "https://cdn.socket.io"
+        ],
+        "connect-src": [
+          "'self'",
+          "https:",
+          "wss:"
+        ],
+        "img-src": [
+          "'self'",
+          "data:",
+          "https://i.ytimg.com",
+          "https://s.ytimg.com"
+        ],
+        "frame-src": [
+          "https://www.youtube.com",
+          "https://www.youtube-nocookie.com"
+        ],
+        "style-src": ["'self'", "'unsafe-inline'"]
+      }
+    },
+    crossOriginEmbedderPolicy: false, // required for YT embeds
+  })
+);
     // clean up user from any room
     const roomCode = socket.data?.roomCode;
     if (roomCode && rooms[roomCode]) {
